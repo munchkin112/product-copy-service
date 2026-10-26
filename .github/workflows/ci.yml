@@ -20,7 +20,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: 테스트 실행
-        run: pytest
+        run: python -m pytest
 
   build:
     needs: test               # test 성공 후 빌드
