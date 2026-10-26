@@ -3,7 +3,7 @@ name: CI
 
 on:
   push:
-    branches: [____]        # TODO: 기본 브랜치 이름 (push될 때 실행)
+    branches: [main]        # 기본 브랜치 (push될 때 실행)
   pull_request:
 
 jobs:
