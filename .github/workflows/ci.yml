@@ -23,7 +23,7 @@ jobs:
         run: ____             # TODO: 테스트를 실행하는 명령 (5단계에서 커버리지 기준 옵션을 덧붙인다)
 
   build:
-    needs: ____               # TODO: 어느 job이 성공해야 빌드하나?
+    needs: test               # TODO: 어느 job이 성공해야 빌드하나?
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
