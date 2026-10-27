@@ -90,10 +90,10 @@ jobs:
             set -e
             set -o pipefail
 
-            IMAGE="${{ secrets.ECR_REGISTRY }}/product-copy-service:${{ github.sha }}"
+            IMAGE="${{ steps.ecr.outputs.registry }}/product-copy-service:${{ github.sha }}"
 
             # EC2에서 ECR 로그인
-            aws ecr get-login-password --region ap-northeast-2 | sudo -n docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+            aws ecr get-login-password --region ap-northeast-2 | sudo -n docker login --username AWS --password-stdin ${{ steps.ecr.outputs.registry }}
 
             # 최신 배포 이미지 다운로드
             sudo -n docker pull "$IMAGE"
