@@ -1,18 +1,32 @@
-# CI 워크플로우 (학생용)
-name: CI
+
+# CI/CD 전체 파이프라인
+# GitHub Secrets:
+# AWS_ACCESS_KEY
+# AWS_ACCESS_SECRET_KEY
+# ECR_REGISTRY
+# EC2_HOST
+# EC2_SSH_KEY
+
+name: CI-CD
 
 on:
   push:
-    branches: [main]        # main 브랜치에 push될 때 실행
+    branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  # 1. CI: 자동 테스트
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - name: 코드 가져오기
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
+      - name: Python 설정
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -22,11 +36,88 @@ jobs:
       - name: 테스트 실행
         run: python -m pytest
 
+  # 2. CI: Docker 이미지 빌드 검증
   build:
-    needs: test               # test 성공 후 빌드
+    needs: test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - name: 코드 가져오기
+        uses: actions/checkout@v5
 
-      - name: Docker 이미지 빌드 (빌드 가능 여부만 검증)
+      - name: Docker 이미지 빌드
         run: docker build -t product-copy-service:${{ github.sha }} .
+
+  # 3. CD: ECR 업로드 및 EC2 자동 배포
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v5
+
+      # AWS 인증
+      - name: AWS 자격 증명 설정
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_ACCESS_SECRET_KEY }}
+          aws-region: ap-northeast-2
+
+      # ECR 로그인
+      - name: ECR 로그인
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 이미지 빌드 및 ECR 업로드
+      - name: Docker 이미지 빌드 및 ECR Push
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/product-copy-service:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # EC2 원격 접속 및 자동 배포
+      - name: EC2 자동 배포
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 10m
+
+          script: |
+            set -e
+            set -o pipefail
+
+            IMAGE="${{ secrets.ECR_REGISTRY }}/product-copy-service:${{ github.sha }}"
+
+            # EC2에서 ECR 로그인
+            aws ecr get-login-password --region ap-northeast-2 | sudo -n docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+
+            # 최신 배포 이미지 다운로드
+            sudo -n docker pull "$IMAGE"
+
+            # 기존 컨테이너 제거
+            sudo -n docker rm -f product-copy-service || true
+
+            # 새 컨테이너 실행
+            sudo -n docker run -d \
+              --name product-copy-service \
+              --restart always \
+              -p 80:8000 \
+              -e APP_ENV=production \
+              "$IMAGE"
+
+            # 배포 정상 여부 확인
+            for i in $(seq 1 15); do
+              if curl -fsS http://127.0.0.1/health; then
+                echo "배포 성공!"
+                exit 0
+              fi
+              sleep 2
+            done
+
+            # 실패하면 컨테이너 로그 출력
+            sudo -n docker logs --tail 50 product-copy-service
+            exit 1
